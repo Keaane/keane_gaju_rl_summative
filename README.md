@@ -133,3 +133,14 @@ uv run recommend.py --savings 500000 --risk medium --time some --interest saving
 
 curl -s http://127.0.0.1:8000/health
 ```
+
+## About TorchRL
+
+The brief asks for the TorchRL library, so we checked whether it could be installed on this project's setup:
+Python 3.12, PyTorch 2.2.2 and NumPy 1.26.4 on an Intel Mac. It could not. PyTorch 2.2.2 is the last release
+for Intel Macs, TorchRL 0.4 and later need PyTorch 2.3, and the last versions that accept PyTorch 2.2.2
+(TorchRL 0.3.1 with tensordict 0.3.2) have no Intel Mac build for Python 3.12 and no source package. A separate
+Python 3.11 environment would likely work, but was not used so that all results come from one setup. The four
+algorithms therefore use plain PyTorch, with the same building blocks TorchRL provides written out by hand: a
+replay buffer and target network for DQN (`training/dqn_training.py`), generalised advantage estimation for A2C
+and PPO, and a learned baseline for REINFORCE (`training/pg_training.py`).
