@@ -2,9 +2,12 @@
 
   uv run python -m training.sweep --algo ppo --steps 100000 --seeds 3 --workers 1
   uv run python -m training.sweep --table ppo        # print the summary table
+  uv run python -m training.sweep --algo ppo --steps 200000 --only 0,3,5 --out logs/sweeps_200k
 
 Each run trains on random users, picks its best checkpoint on validation users, and is
 scored once on the shared test users. Finished runs are skipped, so you can stop and resume.
+--only picks which settings to run; --out keeps a separate log folder (and checkpoint folder)
+so an extended run never mixes with, or overwrites, the main one.
 """
 import argparse
 import csv
@@ -43,8 +46,15 @@ FIELDS = ["algo", "run", "seed", "config", "test_reward", "test_se", "val_best",
           "plan", "quit", "scammed", "panic", "beat_inflation", "minutes"]
 
 
+def checkpoint_dir(out):
+    """Main sweep: models/sweeps/. Any other --out folder gets its own subfolder, e.g. models/sweeps/sweeps_200k/."""
+    if os.path.normpath(out) == os.path.normpath(OUT):
+        return "models/sweeps"
+    return os.path.join("models/sweeps", os.path.basename(os.path.normpath(out)))
+
+
 def run_one(job):
-    algo, run, overrides, seed, steps = job
+    algo, run, overrides, seed, steps, out = job
     torch.set_num_threads(1)
     config_class, trainer, make_policy = REGISTRY[algo]
     settings = {"eval_every": min(10_000, max(1, steps // 5)), **overrides}
@@ -53,7 +63,7 @@ def run_one(job):
     cfg = config_class(total_steps=steps, seed=seed, **settings)
     tag = f"{algo}_run{run:02d}_seed{seed}"
     start = time.time()
-    net, history = trainer(cfg, f"{OUT}/{tag}.csv", f"models/sweeps/{tag}.pt", verbose=False)
+    net, history = trainer(cfg, f"{out}/{tag}.csv", f"{checkpoint_dir(out)}/{tag}.pt", verbose=False)
     test = evaluate(make_policy(net), 300, TEST_SEED)
     reached = next((h["step"] for h in history if h["reward"] >= TARGET), "")
     return {"algo": algo, "run": run, "seed": seed, "config": json.dumps(overrides),
@@ -62,17 +72,18 @@ def run_one(job):
             "panic": test["panic"], "beat_inflation": test["beat_inflation"], "minutes": (time.time() - start) / 60}
 
 
-def summary_path(algo):
-    return f"{OUT}/{algo}_summary.csv"
+def summary_path(algo, out=OUT):
+    return f"{out}/{algo}_summary.csv"
 
 
-def finished(algo):
-    path = summary_path(algo)
+def finished(algo, out=OUT):
+    """(setting, seed) pairs already in the summary file, so they are skipped on a resume."""
+    path = summary_path(algo, out)
     return {(int(r["run"]), int(r["seed"])) for r in csv.DictReader(open(path))} if os.path.exists(path) else set()
 
 
-def print_table(algo):
-    rows = list(csv.DictReader(open(summary_path(algo))))
+def print_table(algo, out=OUT):
+    rows = list(csv.DictReader(open(summary_path(algo, out))))
     print(f"{algo}: mean test reward over seeds (+/- spread), best first")
     by_run = {}
     for r in rows:
@@ -83,25 +94,44 @@ def print_table(algo):
         print(f"  run {run:>2}  {np.mean(scores):+.2f} +/- {np.std(scores):.2f}  ({len(rs)} seeds)  {rs[0]['config']}")
 
 
+def parse_only(text):
+    """'0,3,5' -> [0, 3, 5]. Checks each number is a real setting index."""
+    runs = sorted({int(x) for x in text.split(",") if x.strip()})
+    for r in runs:
+        if not 0 <= r < 10:
+            raise SystemExit(f"--only: setting {r} does not exist (use 0 to 9)")
+    return runs
+
+
+def plan_jobs(algo, runs, seeds, steps, out):
+    """Every (setting, seed) pair still to do. Pairs already in the summary file are skipped."""
+    done = finished(algo, out)
+    jobs = [(algo, r, GRIDS[algo][r], s, steps, out) for r in runs for s in range(seeds) if (r, s) not in done]
+    return jobs, done
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--algo", choices=REGISTRY)
     p.add_argument("--steps", type=int, default=100_000)
     p.add_argument("--seeds", type=int, default=3)
     p.add_argument("--runs", type=int, default=10, help="how many of the 10 settings to run")
+    p.add_argument("--only", help="run only these settings, e.g. 0,3,5 (overrides --runs)")
+    p.add_argument("--out", default=OUT, help="log folder (default logs/sweeps)")
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--table", choices=REGISTRY, help="just print the summary table")
     args = p.parse_args()
     if args.table:
-        return print_table(args.table)
+        return print_table(args.table, args.out)
+    if not args.algo:
+        p.error("--algo is required (or use --table)")
 
-    os.makedirs(OUT, exist_ok=True)
-    done = finished(args.algo)
-    jobs = [(args.algo, r, GRIDS[args.algo][r], s, args.steps)
-            for r in range(args.runs) for s in range(args.seeds) if (r, s) not in done]
-    print(f"{len(jobs)} runs to do ({len(done)} already finished)", flush=True)
-    new_file = not os.path.exists(summary_path(args.algo))
-    with open(summary_path(args.algo), "a", newline="") as f:
+    runs = parse_only(args.only) if args.only else list(range(args.runs))
+    os.makedirs(args.out, exist_ok=True)
+    jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out)
+    print(f"{len(jobs)} runs to do ({len(done)} already finished) -> {args.out}", flush=True)
+    new_file = not os.path.exists(summary_path(args.algo, args.out))
+    with open(summary_path(args.algo, args.out), "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         if new_file:
             writer.writeheader()
@@ -110,7 +140,7 @@ def main():
             writer.writerow(row)
             f.flush()
             print(f"run {row['run']:>2} seed {row['seed']}  test {row['test_reward']:+.2f}  {row['minutes']:.1f} min  {row['config']}", flush=True)
-    print_table(args.algo)
+    print_table(args.algo, args.out)
 
 
 if __name__ == "__main__":
