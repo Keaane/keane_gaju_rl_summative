@@ -1,0 +1,29 @@
+[project]
+name = "starter-path"
+version = "0.1.0"
+description = "Starter Path: mission-based RL for small-capital investment decisions in Rwanda"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=0.29",
+    "numpy>=1.26",
+    "pygame>=2.5",
+    "torch>=2.2",
+    "pillow>=10",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+# CPU-only PyTorch on Linux and Windows: a small download instead of several GB of GPU libraries.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
