@@ -53,13 +53,21 @@ def checkpoint_dir(out):
     return os.path.join("models/sweeps", os.path.basename(os.path.normpath(out)))
 
 
+def train_settings(algo, overrides, steps, dqn_explore_steps=None):
+    """The config for one run: the setting's own changes plus the sweep defaults.
+    DQN explores for the first half of the budget, or for `dqn_explore_steps` if given,
+    unless the setting chooses its own exploration length."""
+    settings = {"eval_every": min(10_000, max(1, steps // 5)), **overrides}
+    if algo == "dqn":
+        settings.setdefault("eps_decay_steps", dqn_explore_steps or steps // 2)
+    return settings
+
+
 def run_one(job):
-    algo, run, overrides, seed, steps, out = job
+    algo, run, overrides, seed, steps, out, dqn_explore_steps = job
     torch.set_num_threads(1)
     config_class, trainer, make_policy = REGISTRY[algo]
-    settings = {"eval_every": min(10_000, max(1, steps // 5)), **overrides}
-    if algo == "dqn":                      # unless a run sets it, explore for the first half of the budget
-        settings.setdefault("eps_decay_steps", steps // 2)
+    settings = train_settings(algo, overrides, steps, dqn_explore_steps)
     cfg = config_class(total_steps=steps, seed=seed, **settings)
     tag = f"{algo}_run{run:02d}_seed{seed}"
     start = time.time()
@@ -103,10 +111,11 @@ def parse_only(text):
     return runs
 
 
-def plan_jobs(algo, runs, seeds, steps, out):
+def plan_jobs(algo, runs, seeds, steps, out, dqn_explore_steps=None):
     """Every (setting, seed) pair still to do. Pairs already in the summary file are skipped."""
     done = finished(algo, out)
-    jobs = [(algo, r, GRIDS[algo][r], s, steps, out) for r in runs for s in range(seeds) if (r, s) not in done]
+    jobs = [(algo, r, GRIDS[algo][r], s, steps, out, dqn_explore_steps)
+            for r in runs for s in range(seeds) if (r, s) not in done]
     return jobs, done
 
 
@@ -118,6 +127,8 @@ def main():
     p.add_argument("--runs", type=int, default=10, help="how many of the 10 settings to run")
     p.add_argument("--only", help="run only these settings, e.g. 0,3,5 (overrides --runs)")
     p.add_argument("--out", default=OUT, help="log folder (default logs/sweeps)")
+    p.add_argument("--dqn-explore-steps", type=int,
+                   help="DQN only: explore for N steps (default: half the budget) unless a setting sets its own")
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--table", choices=REGISTRY, help="just print the summary table")
     args = p.parse_args()
@@ -125,11 +136,14 @@ def main():
         return print_table(args.table, args.out)
     if not args.algo:
         p.error("--algo is required (or use --table)")
+    if args.dqn_explore_steps is not None and (args.algo != "dqn" or args.dqn_explore_steps <= 0):
+        p.error("--dqn-explore-steps needs --algo dqn and a positive number")
 
     runs = parse_only(args.only) if args.only else list(range(args.runs))
     os.makedirs(args.out, exist_ok=True)
-    jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out)
-    print(f"{len(jobs)} runs to do ({len(done)} already finished) -> {args.out}", flush=True)
+    jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out, args.dqn_explore_steps)
+    explore = f", DQN explores {args.dqn_explore_steps} steps" if args.dqn_explore_steps else ""
+    print(f"{len(jobs)} runs to do ({len(done)} already finished) -> {args.out}{explore}", flush=True)
     new_file = not os.path.exists(summary_path(args.algo, args.out))
     with open(summary_path(args.algo, args.out), "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)

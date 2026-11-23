@@ -34,9 +34,23 @@ def test_extended_runs_get_their_own_checkpoints():
     assert sweep.checkpoint_dir("logs/sweeps_200k") == "models/sweeps/sweeps_200k"
 
 
+def test_dqn_explore_steps():
+    # Default: explore for half the budget.
+    assert sweep.train_settings("dqn", {}, 200_000)["eps_decay_steps"] == 100_000
+    # The flag fixes it, so a 200,000-step run explores as long as a 100,000-step one.
+    assert sweep.train_settings("dqn", {}, 200_000, 50_000)["eps_decay_steps"] == 50_000
+    # A setting that chooses its own exploration keeps it.
+    assert sweep.train_settings("dqn", {"eps_decay_steps": 20_000}, 200_000, 50_000)["eps_decay_steps"] == 20_000
+    # Other algorithms have no exploration schedule.
+    assert "eps_decay_steps" not in sweep.train_settings("ppo", {}, 200_000, 50_000)
+    # The flag reaches every planned job.
+    jobs, _ = sweep.plan_jobs("dqn", [1, 6], 1, 200_000, "unused_dir", 50_000)
+    assert all(j[6] == 50_000 for j in jobs)
+
+
 def test_one_tiny_run_writes_to_out(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # keep logs and checkpoints out of the real repo
-    job = ("reinforce", 0, {"eval_users": 5, "episodes_per_update": 4}, 0, 200, "logs/extra")
+    job = ("reinforce", 0, {"eval_users": 5, "episodes_per_update": 4}, 0, 200, "logs/extra", None)
     row = sweep.run_one(job)
     assert row["algo"] == "reinforce" and row["run"] == 0
     assert (tmp_path / "logs/extra/reinforce_run00_seed0.csv").exists()
