@@ -11,7 +11,11 @@ check, and commits a starter plan that is judged over the user's first simulated
 
 ## Run
 
+Repository: https://github.com/Keaane/keane_gaju_rl_summative
+
 ```bash
+git clone https://github.com/Keaane/keane_gaju_rl_summative.git
+cd keane_gaju_rl_summative
 uv sync
 uv run main.py                       # best PPO agent walking the street scene (pygame window)
 uv run main.py --no-gui              # text transcript instead of a window
