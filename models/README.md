@@ -2,6 +2,7 @@
 
 One final model per algorithm, all trained for **200,000 steps**. `main.py` loads them from `models/best/`.
 `models/dqn/` and `models/pg/` hold identical copies in the folder layout the brief asks for.
+`models/seeds/` holds all 3 seeds of each chosen 200,000-step setting (`<algo>_seed<N>.pt`) for the final evaluation (`analysis/final_eval.py`).
 
 | File (and copy) | Algorithm | Setting | Seed | Validation (best) | Test, 300 users (+/- SE) |
 |---|---|---|---|---|---|
