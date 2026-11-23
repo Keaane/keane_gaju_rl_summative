@@ -1,0 +1,22 @@
+Task 4c: 200,000-step reruns of the best 3 settings (chosen by validation in logs/sweeps)
+Date: 2026-11-23
+Machine: Intel i7-8569U (4 cores), 3 workers, run under caffeinate -i, torch 2.2.2
+
+Commands (run in this order):
+uv run python -m training.sweep --algo ppo --steps 200000 --seeds 3 --only 0,5,8 --out logs/sweeps_200k --workers 3
+uv run python -m training.sweep --algo dqn --steps 200000 --seeds 3 --only 1,6,8 --out logs/sweeps_200k --workers 3 --dqn-explore-steps 50000
+
+DQN exploration: fixed at 50,000 steps (same as the 100,000-step sweep, where it was half the budget),
+so only the training budget changes. Run 6 sets its own exploration (20,000 steps) and keeps it.
+The summary CSV "config" column does NOT record the 50,000; this file is the record.
+Checkpoints: models/sweeps/sweeps_200k/ (git-ignored).
+
+Timing note: the laptop went to sleep during the DQN reruns (lid closed on battery; caffeinate -i
+only blocks idle sleep). The "minutes" values for DQN runs 6 and 8 therefore include about an hour
+of sleep and are not real training times. Scores are not affected: each run is fixed by its seed and
+simply paused. Clean timing at 200,000 steps with 3 workers: about 2.7 min per PPO run, 3.6 min per DQN run.
+
+Second batch (2026-11-23, after the history rewrite), same machine, 3 workers, caffeinate -i, laptop plugged in:
+uv run python -m training.sweep --algo a2c       --steps 200000 --seeds 3 --only 2,3,5 --out logs/sweeps_200k --workers 3
+uv run python -m training.sweep --algo reinforce --steps 200000 --seeds 3 --only 2,5,9 --out logs/sweeps_200k --workers 3
+Settings: best 3 by validation in logs/sweeps (A2C 3, 2, 5; REINFORCE 2, 5, 9, which nearly tie with 8).
