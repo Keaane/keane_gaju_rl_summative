@@ -29,6 +29,13 @@ def test_bad_only_value():
         sweep.parse_only("0,12")
 
 
+def test_ppo_has_two_extra_settings():
+    assert len(sweep.GRIDS["ppo"]) == 12 and sweep.GRIDS["ppo"][10:] == [{"lr": 1e-3}, {"gamma": 0.95}]
+    assert sweep.parse_only("10,11", len(sweep.GRIDS["ppo"])) == [10, 11]
+    with pytest.raises(SystemExit):
+        sweep.parse_only("10", len(sweep.GRIDS["dqn"]))     # the other algorithms still have 10 settings
+
+
 def test_extended_runs_get_their_own_checkpoints():
     assert sweep.checkpoint_dir("logs/sweeps") == "models/sweeps"
     assert sweep.checkpoint_dir("logs/sweeps_200k") == "models/sweeps/sweeps_200k"

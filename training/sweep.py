@@ -40,7 +40,8 @@ GRIDS = {
     "a2c": [{}, {"lr": 2e-4}, {"lr": 2e-3}, {"n_steps": 8}, {"n_steps": 128}, {"ent_coef": 0.0},
             {"ent_coef": 0.05}, {"vf_coef": 0.25}, {"gae_lambda": 0.9}, {"gamma": 0.95}],
     "ppo": [{}, {"clip": 0.1}, {"clip": 0.3}, {"gae_lambda": 0.9}, {"epochs": 3}, {"epochs": 16},
-            {"ent_coef": 0.0}, {"ent_coef": 0.05}, {"minibatch": 64}, {"rollout_steps": 512}],
+            {"ent_coef": 0.0}, {"ent_coef": 0.05}, {"minibatch": 64}, {"rollout_steps": 512},
+            {"lr": 1e-3}, {"gamma": 0.95}],          # 10-11: added later, run with --only 10,11
 }
 FIELDS = ["algo", "run", "seed", "config", "test_reward", "test_se", "val_best", "steps_to_target",
           "plan", "quit", "scammed", "panic", "beat_inflation", "minutes"]
@@ -102,12 +103,12 @@ def print_table(algo, out=OUT):
         print(f"  run {run:>2}  {np.mean(scores):+.2f} +/- {np.std(scores):.2f}  ({len(rs)} seeds)  {rs[0]['config']}")
 
 
-def parse_only(text):
-    """'0,3,5' -> [0, 3, 5]. Checks each number is a real setting index."""
+def parse_only(text, n_settings=10):
+    """'0,3,5' -> [0, 3, 5]. Checks each number is a real setting index for this algorithm."""
     runs = sorted({int(x) for x in text.split(",") if x.strip()})
     for r in runs:
-        if not 0 <= r < 10:
-            raise SystemExit(f"--only: setting {r} does not exist (use 0 to 9)")
+        if not 0 <= r < n_settings:
+            raise SystemExit(f"--only: setting {r} does not exist (use 0 to {n_settings - 1})")
     return runs
 
 
@@ -139,7 +140,7 @@ def main():
     if args.dqn_explore_steps is not None and (args.algo != "dqn" or args.dqn_explore_steps <= 0):
         p.error("--dqn-explore-steps needs --algo dqn and a positive number")
 
-    runs = parse_only(args.only) if args.only else list(range(args.runs))
+    runs = parse_only(args.only, len(GRIDS[args.algo])) if args.only else list(range(args.runs))
     os.makedirs(args.out, exist_ok=True)
     jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out, args.dqn_explore_steps)
     explore = f", DQN explores {args.dqn_explore_steps} steps" if args.dqn_explore_steps else ""
