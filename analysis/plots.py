@@ -28,7 +28,7 @@ THOUSANDS = ticker.FuncFormatter(lambda x, _: f"{x / 1000:.0f}k")   # 50000 -> "
 
 ALGOS = ["ppo", "a2c", "reinforce", "dqn"]
 NAMES = {"ppo": "PPO", "a2c": "A2C", "reinforce": "REINFORCE", "dqn": "DQN"}
-CHOSEN_RUN = {"ppo": 5, "a2c": 3, "reinforce": 9, "dqn": 1}       # final 200,000-step settings (models/README.md)
+CHOSEN_RUN = {"ppo": 10, "a2c": 3, "reinforce": 9, "dqn": 1}      # final 200,000-step settings (models/README.md)
 SEEDS = (0, 1, 2)
 MAIN_SETTINGS = range(10)   # the original 10 settings per algorithm; PPO settings 10-11 were added after model selection
 
@@ -168,8 +168,8 @@ def fig_learning_curves(out, rule_val):
     ax.xaxis.set_major_formatter(THOUSANDS)
     ax.legend(loc="lower right", fontsize=8, ncol=2, handlelength=1.8, markerscale=0.7, columnspacing=1.0)
     return finish(fig, "PPO climbs past the safe plan; A2C and REINFORCE level off",
-                  "3 seeds (band = min-max). Dotted: target 0.10. Dashed: profile rule on these validation "
-                  f"users ({rule_val:+.2f}; +0.05 on test).",
+                  "Validation scores (up to 200,000 steps) pick checkpoints, so they lean optimistic vs test. "
+                  f"Dotted: target 0.10; dashed: rule ({rule_val:+.2f}).",
                   f"{out}/learning_curves.png")
 
 
@@ -254,7 +254,7 @@ def fig_convergence(out):
     axes[0].set_yticks([0, 50_000, 100_000, never_y], ["0", "50k", "100k", "never"])
     axes[0].set_ylim(-20_000, never_y + 8_000)
     return finish(fig, "Most runs reach the safe plan; only PPO and DQN go beyond",
-                  "100,000-step sweep, 30 runs each; x = never; ringed = final setting.",
+                  "100,000-step sweep, 30 runs each; x = never; ringed = final setting (PPO's, run 10, was added later).",
                   f"{out}/convergence.png")
 
 
@@ -282,7 +282,7 @@ def fig_hyperparameters(out):
         ax.set_xlabel("reward per session (test)")
     axes[0, 0].text(rule_test, 9.6, " rule", fontsize=8, color=INK_2)
     return finish(fig, "Settings matter for PPO and DQN; A2C and REINFORCE stay near +0.16",
-                  "300 test users; bar = mean of 3 seeds, dots = seeds; * = final setting; "
+                  "300 test users; bar = mean of 3 seeds, dots = seeds; * = final setting (PPO's, run 10, was added later); "
                   f"dashed = profile rule ({rule_test:+.2f}).",
                   f"{out}/hyperparameter_effect.png")
 
