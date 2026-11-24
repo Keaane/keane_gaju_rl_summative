@@ -111,6 +111,20 @@ def a2c_loss_module(actor, critic, cfg):
     return A2CLoss(actor, critic, entropy_coef=cfg.ent_coef, critic_coef=cfg.vf_coef, loss_critic_type="l2")
 
 
+def a2c_total_loss(out):
+    """Policy + value + entropy terms. TorchRL 0.3.1's A2CLoss leaves out the entropy term when its coefficient is
+    0 (entropy_bonus = entropy_bonus and entropy_coef), so a missing term counts as 0, which is what it equals."""
+    entropy_term = out["loss_entropy"] if "loss_entropy" in out.keys() else torch.zeros(())
+    return out["loss_objective"] + out["loss_critic"] + entropy_term
+
+
+def a2c_entropy_for_log(out, cfg):
+    """The policy entropy for the training log (not logged when the entropy coefficient is 0)."""
+    if "loss_entropy" not in out.keys():
+        return float("nan")
+    return -out["loss_entropy"].item() / max(cfg.ent_coef, 1e-12)
+
+
 def train_a2c_torchrl(cfg=A2CConfig(), log_path=None, save_path=None, verbose=True):
     env, net, actor, critic, opt, ev = setup(cfg, log_path, save_path, verbose)
     advantage = plain_like(GAE(gamma=cfg.gamma, lmbda=cfg.gae_lambda, value_network=critic))
@@ -123,9 +137,9 @@ def train_a2c_torchrl(cfg=A2CConfig(), log_path=None, save_path=None, verbose=Tr
         with torch.no_grad():
             advantage(batch)
         out = loss_module(batch)
-        update(net, opt, out["loss_objective"] + out["loss_critic"] + out["loss_entropy"])
+        update(net, opt, a2c_total_loss(out))
         ev.check(steps, net, lambda: {"policy_loss": out["loss_objective"].item(), "value_loss": out["loss_critic"].item(),
-                                      "entropy": -out["loss_entropy"].item() / max(cfg.ent_coef, 1e-12)})
+                                      "entropy": a2c_entropy_for_log(out, cfg)})
     collector.shutdown()
     return ev.load_best(net), ev.history
 

@@ -96,6 +96,38 @@ def test_a2c_loss_matches_plain():
     same(net, plain_loss, out["loss_objective"] + out["loss_critic"] + out["loss_entropy"])
 
 
+def a2c_batch(seed, ent_coef):
+    torch.manual_seed(seed)
+    cfg, net = plain.A2CConfig(ent_coef=ent_coef), plain.ActorCritic(64)
+    actor, critic = trl.make_actor_critic(net, make_env(seed))
+    batch = rollout(seed, actor)
+    with torch.no_grad():
+        trl.plain_like(GAE(gamma=cfg.gamma, lmbda=cfg.gae_lambda, value_network=critic))(batch)
+    lm = trl.a2c_loss_module(actor, critic, cfg)
+    lm.set_keys(terminated="done")
+    return cfg, net, batch, lm
+
+
+def test_a2c_fix_changes_nothing_with_nonzero_entropy():
+    """(1) With a nonzero entropy coefficient, the fixed sum equals the formula used before the fix."""
+    cfg, net, batch, lm = a2c_batch(4, ent_coef=0.01)
+    out = lm(batch.clone())
+    before_fix = out["loss_objective"] + out["loss_critic"] + out["loss_entropy"]
+    same(net, before_fix, trl.a2c_total_loss(lm(batch.clone())))
+
+
+def test_a2c_loss_matches_plain_with_zero_entropy():
+    """(2) With entropy coefficient 0 (A2C setting 5), TorchRL leaves the entropy term out; the sum still matches."""
+    cfg, net, batch, lm = a2c_batch(5, ent_coef=0.0)
+    adv, returns = plain_targets(batch, net, cfg.gamma, cfg.gae_lambda)
+    logits, value = net(batch["observation"])
+    dist = torch.distributions.Categorical(logits=logits)
+    plain_loss = -(dist.log_prob(batch["action"]) * adv).mean() + cfg.vf_coef * nn.functional.mse_loss(value, returns)
+    out = lm(batch.clone())
+    assert "loss_entropy" not in out.keys()                        # the cause of the failed sweep
+    same(net, plain_loss, trl.a2c_total_loss(out))
+
+
 def test_ppo_loss_matches_plain():
     torch.manual_seed(2)
     cfg, net = plain.PPOConfig(), plain.ActorCritic(64)
