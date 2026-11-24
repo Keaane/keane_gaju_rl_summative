@@ -1,4 +1,7 @@
-"""DQN (value-based): Q-network, replay buffer, target network, epsilon-greedy."""
+"""DQN (value-based): Q-network, replay buffer, target network, epsilon-greedy.
+
+This is the plain PyTorch trainer; the TorchRL version, used for the final models, is training/torchrl_dqn.py.
+"""
 import argparse
 from dataclasses import asdict, dataclass
 

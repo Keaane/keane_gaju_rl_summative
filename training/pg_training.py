@@ -1,5 +1,7 @@
 """Policy-gradient methods on one shared network: REINFORCE, A2C and PPO.
 
+This is the plain PyTorch trainer; the TorchRL versions, used for the final models, are in training/torchrl_pg.py.
+
 All three learn a policy (which action to take). They differ in WHEN they learn and
 HOW they judge an action:
   REINFORCE  waits for whole sessions, then scores each action by what followed it
