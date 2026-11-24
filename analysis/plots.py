@@ -1,10 +1,13 @@
-"""Figures for the report (Task 8). Every figure is a PNG (dpi 200) in assets/plots/.
+"""Figures for the report (Task 8). Every figure is a PNG (dpi 200).
 
-  uv run python -m analysis.plots                      # all figures
+  uv run python -m analysis.plots --impl torchrl       # the final (TorchRL) figures -> assets/plots/
+  uv run python -m analysis.plots                      # plain PyTorch figures -> assets/plots/plain_pytorch/,
+                                                       # plus the two environment screenshots -> assets/plots/
   uv run python -m analysis.plots --out-dir scratch/plots --skip-screenshots
 
-Reads only files already in the repo: logs/sweeps/ (100,000-step sweep), logs/sweeps_200k/ (200,000-step
-reruns), logs/reference.json and assets/final_results.csv. Colours follow one fixed order (a colour-blind-safe
+Reads only files already in the repo: logs/torchrl/ or logs/sweeps/ and logs/sweeps_200k/ (100,000-step sweep and
+200,000-step reruns), logs/reference.json and assets/torchrl/final_results.csv or assets/final_results.csv.
+The plain figures in assets/plots/plain_pytorch/ were drawn before Figure 2 was narrowed to 4.2 inches. Colours follow one fixed order (a colour-blind-safe
 reference palette): each algorithm keeps its colour in every figure, and baselines are grey.
 Simulation only, not financial advice.
 """
@@ -162,8 +165,27 @@ def rule_validation_score(n_users=200):
 
 
 # ---- 1. learning curves ---------------------------------------------------------------------
+LEARNING_CURVES_WIDTH = 4.2          # inches; placed at this width in the report (Figure 2)
+
+
+def label_line_ends(fig, ax, ends, gap_pt=9):
+    """Name each line at its right end, in the order the lines end, at least gap_pt apart (8 pt text)."""
+    fig.canvas.draw()                                          # fixes the axes, so data -> points is known
+    to_pt = lambda y: ax.transData.transform((0, y))[1] * 72 / fig.dpi
+    order = sorted(ends, key=lambda a: -ends[a][1])            # highest end first
+    placed = []
+    for algo in order:
+        y = to_pt(ends[algo][1])
+        if placed and placed[-1] - y < gap_pt:
+            y = placed[-1] - gap_pt
+        placed.append(y)
+        ax.annotate(NAMES[algo], ends[algo], xytext=(6, y - to_pt(ends[algo][1])), textcoords="offset points",
+                    va="center", fontsize=8, color=INK)
+
+
 def fig_learning_curves(out, rule_val):
-    fig, ax = plt.subplots(figsize=(5.0, 2.93))
+    fig, ax = plt.subplots(figsize=(LEARNING_CURVES_WIDTH, 2.75))
+    ends = {}                                                   # algo -> where its mean line ends
     for algo in ALGOS:
         cs = final_curves(algo)
         steps = cs[0]["step"]
@@ -173,9 +195,7 @@ def fig_learning_curves(out, rule_val):
         ax.fill_between(steps, ys.min(0), ys.max(0), color=COLOR[algo], alpha=0.12, linewidth=0)
         ax.plot(steps, ys.mean(0), color=COLOR[algo], linestyle=LINESTYLE[algo], marker=MARKER[algo],
                 markevery=4, markersize=5, label=f"{NAMES[algo]} (run {CHOSEN_RUN[algo]})")
-        nudge = {"a2c": -7, "reinforce": 2, "dqn": 2, "ppo": 3}.get(algo, 0)        # A2C and REINFORCE end at nearly the same value
-        ax.annotate(NAMES[algo], (steps[-1], ys.mean(0)[-1]), xytext=(6, nudge), textcoords="offset points",
-                    va="center", fontsize=8, color=INK)
+        ends[algo] = (steps[-1], ys.mean(0)[-1])
     ax.axhline(TARGET_SAFE, color=INK_2, linestyle=":", linewidth=1)
     ax.axhline(rule_val, color=RULE_GREY, linestyle="--", linewidth=1)
     ax.set_xlabel("training steps")
@@ -184,7 +204,8 @@ def fig_learning_curves(out, rule_val):
     ax.set_xlim(0, 215_000)
     ax.xaxis.set_major_formatter(THOUSANDS)
     ax.legend(loc="lower right", fontsize=8, ncol=2, handlelength=1.8, markerscale=0.7, columnspacing=1.0)
-    return finish(fig, "PPO climbs past the safe plan; A2C and REINFORCE level off",
+    label_line_ends(fig, ax, ends)
+    return finish(fig, "PPO and DQN climb past the safe plan",
                   "Validation scores (up to 200,000 steps) pick checkpoints, so they lean optimistic vs test. "
                   f"Dotted: target 0.10; dashed: rule ({rule_val:+.2f}).",
                   f"{out}/learning_curves.png")
@@ -339,7 +360,7 @@ def fig_generalization(out):
     ax.legend(ncol=6, fontsize=8, loc="lower center", bbox_to_anchor=(0.5, 1.0), handlelength=1.2, columnspacing=0.7)
     ax.set_ylim(None, max(oracle) + 0.25)
     return finish(fig, "PPO and DQN lose their edge when scams rise",
-                  "500 users per world, mean of 3 seeds, +/- 1 SE. A2C and REINFORCE (SACCO only) are unaffected. "
+                  "500 users per world, mean of 3 seeds, +/- 1 SE. A2C and REINFORCE (SACCO only) are unaffected by more scams. "
                   "Shifted worlds are assumed.",
                   f"{out}/generalization.png")
 
@@ -401,7 +422,7 @@ def fig_behaviour(out):
             c.text(xk, rate + 0.004, f"{rate:.0%}", ha="center", fontsize=8, color=INK, rotation=90, va="bottom")   # zero bars stay readable
     c.set_xticks(range(len(agents)), ["PPO", "A2C", "REINFORCE", "DQN", "rule"], rotation=35, ha="right")
     c.yaxis.set_major_formatter(ticker.PercentFormatter(1.0, decimals=0))
-    c.set_ylim(0, 0.2)
+    c.set_ylim(0, max(0.2, 1.3 * max(bar.get_height() for bar in c.patches)))   # room for the rotated labels
     c.set_ylabel("sessions")
     c.set_title("scam checks: normal (filled)\nvs more scams (outline)", loc="left")
     c.grid(axis="x", visible=False)
@@ -469,11 +490,12 @@ def fig_screenshots(out):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--impl", choices=["plain", "torchrl"], default="plain", help="plain (default) or torchrl")
-    p.add_argument("--out-dir", help="default: assets/plots (plain) or assets/plots/torchrl (torchrl)")
+    p.add_argument("--out-dir", help="default: assets/plots (torchrl) or assets/plots/plain_pytorch (plain)")
     p.add_argument("--skip-screenshots", action="store_true", help="skip the two pygame screenshots")
     args = p.parse_args()
     use_impl(args.impl)
-    args.out_dir = args.out_dir or ("assets/plots" if args.impl == "plain" else "assets/plots/torchrl")
+    screens_dir = args.out_dir or "assets/plots"         # the environment screenshots stay in assets/plots/
+    args.out_dir = args.out_dir or ("assets/plots/plain_pytorch" if args.impl == "plain" else "assets/plots")
     if args.impl == "torchrl":
         args.skip_screenshots = True                     # the environment pictures do not depend on the algorithm
     set_style()
@@ -481,7 +503,7 @@ def main():
             fig_convergence(args.out_dir), fig_hyperparameters(args.out_dir), fig_generalization(args.out_dir),
             fig_behaviour(args.out_dir), fig_paired(args.out_dir)]
     if not args.skip_screenshots:
-        made += fig_screenshots(args.out_dir)
+        made += fig_screenshots(screens_dir)
     for path in made:
         print(f"{path}  {os.path.getsize(path) / 1024:.0f} KB")
 
