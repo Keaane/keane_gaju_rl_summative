@@ -34,7 +34,7 @@ from training.pg_training import ActorCritic, greedy_policy
 
 TEST_SEED = 100_000
 # The chosen 200,000-step setting per algorithm, and which seed is the demo model in models/best/.
-CHOSEN = {"ppo": ("run 5: 16 epochs", 0), "a2c": ("run 3: update every 8 steps", 2),
+CHOSEN = {"ppo": ("run 10: learning rate 1e-3", 2), "a2c": ("run 3: update every 8 steps", 2),
           "reinforce": ("run 9: entropy 0.05", 1), "dqn": ("run 1: learning rate 3e-4", 0)}
 SEEDS = (0, 1, 2)
 # name -> (description, first user seed, reset options)
