@@ -31,11 +31,15 @@ Defaults: learning rate 3e-4, clip 0.2, 8 epochs, minibatch 256, rollout 2,048 s
 | 2 | clip 0.3 | +0.17 +/- 0.00 | +0.17 +0.17 +0.16 | |
 | 1 | clip 0.1 | +0.12 +/- 0.08 | +0.22 +0.10 +0.03 | |
 | 4 | 3 epochs | +0.08 +/- 0.07 | -0.01 +0.09 +0.17 | |
+| 10 † | learning rate 1e-3 | **+0.52 +/- 0.06** | +0.44 +0.53 +0.59 | **+0.66 +/- 0.04** |
+| 11 † | gamma 0.95 | +0.34 +/- 0.03 | +0.34 +0.38 +0.31 | |
+
+† Added after the first model selection (see "Runs 10 and 11 and the switch" below).
 
 **What each change did**
 - **More learning from each batch helped most.** With 16 epochs (run 5), all 3 seeds escaped the safe plan
   and reached the target (0.10) earliest, at 41,000-51,000 steps. A minibatch of 64 (run 8) means about 4 times
-  as many gradient steps per epoch, so it has a similar effect. It was the best setting by both validation and test.
+  as many gradient steps per epoch, so it has a similar effect. It was the best of the original 10 settings by both validation and test.
 - **Less learning per batch was too slow.** With 3 epochs (run 4) one seed never reached the target, and
   with clip 0.1 (run 1) the policy may only move a little per update, so 100,000 steps were not enough.
 - **Some settings stuck on every seed.** With clip 0.3 (run 2) and a rollout of 512 steps (run 9), all 3 seeds
@@ -49,7 +53,20 @@ Defaults: learning rate 3e-4, clip 0.2, 8 epochs, minibatch 256, rollout 2,048 s
 - Even the best PPO runs beat inflation for only about 12-14% of users, consistent with the key finding
   (even T-bills lose purchasing power at 19.5% inflation). No PPO run let users get scammed, and quits stayed near 0%.
   (The sweep logs count the share of all users. The final 500-user evaluation, `assets/final_results.csv`, also reports
-  the share of plans: 12% for PPO and 13% for DQN.)
+  the share of plans: 14% for PPO (12% for the earlier run-5 model) and 13% for DQN.)
+
+**Runs 10 and 11 and the switch**
+- Runs 10 (learning rate 1e-3) and 11 (gamma 0.95) were added after the first selection, because the original
+  grid kept PPO's learning rate and gamma at their defaults. Each ran 3 seeds at 100,000 steps, like the others.
+- **A higher learning rate (1e-3) scored well:** +0.52 on test, the highest mean test score at 100,000 steps, and it
+  reached the target fastest (31,000-41,000 steps). Within noise, it is level with runs 5 and 8.
+- **Gamma 0.95 scored lower than the default** (+0.34 against +0.45), but the default's seeds varied a lot
+  (+/- 0.20), so the gap is within noise. Every seed left the safe plan.
+- Run 10 also led the 100,000-step validation ranking, so it was rerun at 200,000 steps. There its mean
+  validation score was +0.833, more than 0.02 above run 5 (+0.771) and run 8 (+0.773), so the pre-set rule
+  made run 10 the final PPO setting (seed 2, best on validation).
+- On test the three were equal: runs 5, 8 and 10 all average +0.66 at 200,000 steps. The switch follows the
+  rule; it is not a gain on test.
 
 ---
 
@@ -166,11 +183,11 @@ Defaults: learning rate 1e-3, update after every 16 sessions, learned baseline o
 
 ## Across the four algorithms
 
-- **Only PPO and DQN learned anything beyond the safe plan.** PPO's best settings (16 epochs, or minibatch 64) reached
+- **Only PPO and DQN learned anything beyond the safe plan.** PPO's best settings (16 epochs, minibatch 64, learning rate 1e-3) reached
   **+0.66** on test at 200,000 steps, well above the best profile rule (+0.12) but still far from the oracle (+0.94).
   DQN's best (learning rate 3e-4) reached **+0.32**. A2C and REINFORCE stayed at about **+0.16 to +0.19** in every setting and at both budgets.
   These 300-user figures (PPO +0.66, DQN +0.32) come from the best settings picked in the sweep, so they lean optimistic.
-  The headline numbers are in `assets/final_results.csv` (500 test users, mean over 3 seeds): PPO +0.57, DQN +0.31,
+  The headline numbers are in `assets/final_results.csv` (500 test users, mean over 3 seeds): PPO +0.60 (run 10), DQN +0.31,
   best profile rule +0.05.
 - **The safe plan is the main obstacle.** It is easy to find and hard to leave. A2C and REINFORCE always stop there,
   and some PPO seeds do too. Giving a stuck run twice the steps never freed it.
