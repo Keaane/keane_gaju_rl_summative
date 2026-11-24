@@ -88,6 +88,10 @@ tests/
 
 ## Environment in brief
 
+![One simulated session in the street scene](assets/session_walkthrough.gif)
+
+The animation shows one simulated session guided by the hand-written adaptive guide (not a trained agent), for test user 100249.
+
 - **Actions (15):** show an opportunity (10), commit a small / medium / large plan (3),
   check for scams (1), end the session (1).
 - **Guide sees:** the intake (savings, stated risk, time, interest), the user's reactions,
