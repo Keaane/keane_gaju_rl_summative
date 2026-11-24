@@ -20,3 +20,8 @@ Second batch (2026-11-23, after the history rewrite), same machine, 3 workers, c
 uv run python -m training.sweep --algo a2c       --steps 200000 --seeds 3 --only 2,3,5 --out logs/sweeps_200k --workers 3
 uv run python -m training.sweep --algo reinforce --steps 200000 --seeds 3 --only 2,5,9 --out logs/sweeps_200k --workers 3
 Settings: best 3 by validation in logs/sweeps (A2C 3, 2, 5; REINFORCE 2, 5, 9, which nearly tie with 8).
+
+Third batch (2026-11-24), same machine, 3 workers, caffeinate -i: PPO setting 10 (learning rate 1e-3) was added to
+the sweep after model selection and led the 100,000-step validation ranking, so it was rerun here to apply the
+same selection rule:
+uv run python -m training.sweep --algo ppo --steps 200000 --seeds 3 --only 10 --out logs/sweeps_200k --workers 3
