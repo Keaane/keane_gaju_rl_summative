@@ -24,6 +24,7 @@ from training.common import TEST_SEED, evaluate, greedy
 
 TARGET = 0.10    # validation reward that counts as "learned" (about the best simple rule)
 OUT = "logs/sweeps"
+TORCHRL_OUT = "logs/torchrl/sweeps"   # --impl torchrl (Python 3.11 side environment; see the README)
 
 # algo -> (config class, trainer, how to turn the trained network into a policy)
 REGISTRY = {
@@ -47,11 +48,22 @@ FIELDS = ["algo", "run", "seed", "config", "test_reward", "test_se", "val_best",
           "plan", "quit", "scammed", "panic", "beat_inflation", "minutes"]
 
 
-def checkpoint_dir(out):
-    """Main sweep: models/sweeps/. Any other --out folder gets its own subfolder, e.g. models/sweeps/sweeps_200k/."""
+def checkpoint_dir(out, impl="plain"):
+    """Main sweep: models/sweeps/. Any other --out folder gets its own subfolder, e.g. models/sweeps/sweeps_200k/.
+    TorchRL runs keep their checkpoints apart, under models/torchrl/."""
+    if impl == "torchrl":
+        return os.path.join("models/torchrl", os.path.basename(os.path.normpath(out)))
     if os.path.normpath(out) == os.path.normpath(OUT):
         return "models/sweeps"
     return os.path.join("models/sweeps", os.path.basename(os.path.normpath(out)))
+
+
+def registry(impl="plain"):
+    """Which trainers to use. TorchRL is imported only when asked for, so plain runs never need it."""
+    if impl == "torchrl":
+        from training.torchrl_run import TORCHRL_REGISTRY
+        return TORCHRL_REGISTRY
+    return REGISTRY
 
 
 def train_settings(algo, overrides, steps, dqn_explore_steps=None):
@@ -65,14 +77,15 @@ def train_settings(algo, overrides, steps, dqn_explore_steps=None):
 
 
 def run_one(job):
-    algo, run, overrides, seed, steps, out, dqn_explore_steps = job
+    algo, run, overrides, seed, steps, out, dqn_explore_steps = job[:7]
+    impl = job[7] if len(job) > 7 else "plain"
     torch.set_num_threads(1)
-    config_class, trainer, make_policy = REGISTRY[algo]
+    config_class, trainer, make_policy = registry(impl)[algo]
     settings = train_settings(algo, overrides, steps, dqn_explore_steps)
     cfg = config_class(total_steps=steps, seed=seed, **settings)
     tag = f"{algo}_run{run:02d}_seed{seed}"
     start = time.time()
-    net, history = trainer(cfg, f"{out}/{tag}.csv", f"{checkpoint_dir(out)}/{tag}.pt", verbose=False)
+    net, history = trainer(cfg, f"{out}/{tag}.csv", f"{checkpoint_dir(out, impl)}/{tag}.pt", verbose=False)
     test = evaluate(make_policy(net), 300, TEST_SEED)
     reached = next((h["step"] for h in history if h["reward"] >= TARGET), "")
     return {"algo": algo, "run": run, "seed": seed, "config": json.dumps(overrides),
@@ -112,10 +125,10 @@ def parse_only(text, n_settings=10):
     return runs
 
 
-def plan_jobs(algo, runs, seeds, steps, out, dqn_explore_steps=None):
+def plan_jobs(algo, runs, seeds, steps, out, dqn_explore_steps=None, impl="plain"):
     """Every (setting, seed) pair still to do. Pairs already in the summary file are skipped."""
     done = finished(algo, out)
-    jobs = [(algo, r, GRIDS[algo][r], s, steps, out, dqn_explore_steps)
+    jobs = [(algo, r, GRIDS[algo][r], s, steps, out, dqn_explore_steps, impl)
             for r in runs for s in range(seeds) if (r, s) not in done]
     return jobs, done
 
@@ -130,9 +143,13 @@ def main():
     p.add_argument("--out", default=OUT, help="log folder (default logs/sweeps)")
     p.add_argument("--dqn-explore-steps", type=int,
                    help="DQN only: explore for N steps (default: half the budget) unless a setting sets its own")
+    p.add_argument("--impl", choices=["plain", "torchrl"], default="plain",
+                   help="torchrl: TorchRL versions (needs the Python 3.11 side environment); logs in logs/torchrl/")
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--table", choices=REGISTRY, help="just print the summary table")
     args = p.parse_args()
+    if args.impl == "torchrl" and os.path.normpath(args.out) == os.path.normpath(OUT):
+        args.out = TORCHRL_OUT                               # never mix TorchRL rows into the plain summaries
     if args.table:
         return print_table(args.table, args.out)
     if not args.algo:
@@ -142,7 +159,7 @@ def main():
 
     runs = parse_only(args.only, len(GRIDS[args.algo])) if args.only else list(range(args.runs))
     os.makedirs(args.out, exist_ok=True)
-    jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out, args.dqn_explore_steps)
+    jobs, done = plan_jobs(args.algo, runs, args.seeds, args.steps, args.out, args.dqn_explore_steps, args.impl)
     explore = f", DQN explores {args.dqn_explore_steps} steps" if args.dqn_explore_steps else ""
     print(f"{len(jobs)} runs to do ({len(done)} already finished) -> {args.out}{explore}", flush=True)
     new_file = not os.path.exists(summary_path(args.algo, args.out))
