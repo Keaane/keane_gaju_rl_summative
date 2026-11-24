@@ -29,6 +29,23 @@ THOUSANDS = ticker.FuncFormatter(lambda x, _: f"{x / 1000:.0f}k")   # 50000 -> "
 ALGOS = ["ppo", "a2c", "reinforce", "dqn"]
 NAMES = {"ppo": "PPO", "a2c": "A2C", "reinforce": "REINFORCE", "dqn": "DQN"}
 CHOSEN_RUN = {"ppo": 10, "a2c": 3, "reinforce": 9, "dqn": 1}      # final 200,000-step settings (models/README.md)
+# Where the data lives. use_impl("torchrl") switches to the TorchRL results (logs/torchrl/, assets/torchrl/).
+SWEEP_DIR, RERUN_DIR, FINAL_CSV = "logs/sweeps", "logs/sweeps_200k", "assets/final_results.csv"
+
+
+def use_impl(impl="plain"):
+    """Point every figure at one implementation's results. Plain is the default and changes nothing."""
+    global SWEEP_DIR, RERUN_DIR, FINAL_CSV, CHOSEN_RUN
+    if impl == "torchrl":
+        SWEEP_DIR, RERUN_DIR, FINAL_CSV = "logs/torchrl/sweeps", "logs/torchrl/sweeps_200k", "assets/torchrl/final_results.csv"
+        with open("logs/torchrl/chosen.json") as f:
+            CHOSEN_RUN = {algo: c["run"] for algo, c in json.load(f).items()}
+
+
+def ppo_added_later():
+    """The note for the two 10-setting figures, when PPO's final setting is one of the two added later."""
+    run = CHOSEN_RUN["ppo"]
+    return f" (PPO's, run {run}, was added later)" if run >= 10 else ""
 SEEDS = (0, 1, 2)
 MAIN_SETTINGS = range(10)   # the original 10 settings per algorithm; PPO settings 10-11 were added after model selection
 
@@ -85,9 +102,9 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
-def curve(algo, run, seed, folder="logs/sweeps_200k"):
+def curve(algo, run, seed, folder=None):
     """One training run's log: a dict of column -> numpy array (one value per evaluation)."""
-    rows = read_csv(f"{folder}/{algo}_run{run:02d}_seed{seed}.csv")
+    rows = read_csv(f"{folder or RERUN_DIR}/{algo}_run{run:02d}_seed{seed}.csv")
     return {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
 
 
@@ -98,7 +115,7 @@ def final_curves(algo):
 def main_sweep_runs(algo):
     """The 100,000-step sweep summary grouped by setting, keeping only the original 10 settings."""
     by_run = {}
-    for r in read_csv(f"logs/sweeps/{algo}_summary.csv"):
+    for r in read_csv(f"{SWEEP_DIR}/{algo}_summary.csv"):
         if int(r["run"]) in MAIN_SETTINGS:
             by_run.setdefault(int(r["run"]), []).append(r)
     return by_run
@@ -235,7 +252,7 @@ def fig_convergence(out):
             reached = 0
             for run in MAIN_SETTINGS:
                 for s in SEEDS:
-                    step = first_step_at(curve(algo, run, s, "logs/sweeps"), target)
+                    step = first_step_at(curve(algo, run, s, SWEEP_DIR), target)
                     x = i + rng.uniform(-0.22, 0.22)
                     final = run == CHOSEN_RUN[algo]
                     if step is None:
@@ -254,7 +271,7 @@ def fig_convergence(out):
     axes[0].set_yticks([0, 50_000, 100_000, never_y], ["0", "50k", "100k", "never"])
     axes[0].set_ylim(-20_000, never_y + 8_000)
     return finish(fig, "Most runs reach the safe plan; only PPO and DQN go beyond",
-                  "100,000-step sweep, 30 runs each; x = never; ringed = final setting (PPO's, run 10, was added later).",
+                  f"100,000-step sweep, 30 runs each; x = never; ringed = final setting{ppo_added_later()}.",
                   f"{out}/convergence.png")
 
 
@@ -282,7 +299,7 @@ def fig_hyperparameters(out):
         ax.set_xlabel("reward per session (test)")
     axes[0, 0].text(rule_test, 9.6, " rule", fontsize=8, color=INK_2)
     return finish(fig, "Settings matter for PPO and DQN; A2C and REINFORCE stay near +0.16",
-                  "300 test users; bar = mean of 3 seeds, dots = seeds; * = final setting (PPO's, run 10, was added later); "
+                  f"300 test users; bar = mean of 3 seeds, dots = seeds; * = final setting{ppo_added_later()}; "
                   f"dashed = profile rule ({rule_test:+.2f}).",
                   f"{out}/hyperparameter_effect.png")
 
@@ -297,7 +314,7 @@ WORLD_LABELS = {"normal": "normal",
 
 def final_rows():
     """assets/final_results.csv as {(world, policy): row}."""
-    return {(r["world"], r["policy"]): r for r in read_csv("assets/final_results.csv")}
+    return {(r["world"], r["policy"]): r for r in read_csv(FINAL_CSV)}
 
 
 def fig_generalization(out):
@@ -451,9 +468,14 @@ def fig_screenshots(out):
 # ---- run everything -------------------------------------------------------------------------
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out-dir", default="assets/plots")
+    p.add_argument("--impl", choices=["plain", "torchrl"], default="plain", help="plain (default) or torchrl")
+    p.add_argument("--out-dir", help="default: assets/plots (plain) or assets/plots/torchrl (torchrl)")
     p.add_argument("--skip-screenshots", action="store_true", help="skip the two pygame screenshots")
     args = p.parse_args()
+    use_impl(args.impl)
+    args.out_dir = args.out_dir or ("assets/plots" if args.impl == "plain" else "assets/plots/torchrl")
+    if args.impl == "torchrl":
+        args.skip_screenshots = True                     # the environment pictures do not depend on the algorithm
     set_style()
     made = [fig_learning_curves(args.out_dir, rule_validation_score()), fig_dqn(args.out_dir), fig_pg(args.out_dir),
             fig_convergence(args.out_dir), fig_hyperparameters(args.out_dir), fig_generalization(args.out_dir),
