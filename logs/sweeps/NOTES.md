@@ -1,5 +1,8 @@
 # Sweep notes: what each setting did, and why
 
+> These are the plain PyTorch sweeps. The final models are the TorchRL versions; their sweep notes and the
+> TorchRL-versus-plain comparison are in `logs/torchrl/sweeps/NOTES.md`.
+
 **How to read the numbers**
 - Each setting was trained with 3 seeds. A "test" score is the mean reward on the same 300 test users
   (seeds 100000+), compared with putting everything in T-bills. It is shown as mean over seeds +/- the spread between seeds.
