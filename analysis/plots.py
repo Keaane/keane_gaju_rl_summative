@@ -212,10 +212,13 @@ def fig_learning_curves(out, rule_val):
 
 
 # ---- 2. DQN loss and exploration -------------------------------------------------------------
+FIG3_WIDTH = 3.1          # inches; Figure 3's two figures sit side by side in the report, each at this width
+
+
 def fig_dqn(out):
     cs = final_curves("dqn")
     steps = cs[0]["step"]
-    fig, (a, b) = plt.subplots(1, 2, figsize=(6.0, 2.7))
+    fig, (a, b) = plt.subplots(2, 1, figsize=(FIG3_WIDTH, 3.3), sharex=True)
     for s, c in zip(SEEDS, cs):
         a.plot(steps, c["loss"], color=COLOR["dqn"], linewidth=1.2, alpha=0.5 + 0.25 * s, label=f"seed {s}")
     a.axvline(50_000, color=INK_2, linestyle=":", linewidth=1)
@@ -226,18 +229,17 @@ def fig_dqn(out):
     b.set_title("epsilon (share of random actions)", loc="left")
     b.set_ylabel("epsilon")
     b.set_ylim(0, 1.05)
-    for ax in (a, b):
-        ax.set_xlabel("training steps")
-        ax.xaxis.set_major_formatter(THOUSANDS)
-    a.legend(fontsize=8)
-    return finish(fig, "DQN's loss dips while it explores, then levels off",
+    b.set_xlabel("training steps")
+    b.xaxis.set_major_formatter(THOUSANDS)
+    a.legend(fontsize=8, loc="lower center", ncol=3, handlelength=1.0, columnspacing=0.8, borderaxespad=0.1)  # empty band under the curves
+    return finish(fig, "DQN: loss dips, then levels off",
                   "DQN run 1 (learning rate 3e-4), 3 seeds, 200,000 steps, logged every 10,000 steps.",
                   f"{out}/dqn_loss_epsilon.png")
 
 
 # ---- 3. policy-gradient entropy and policy loss ----------------------------------------------
 def fig_pg(out):
-    fig, (a, b) = plt.subplots(1, 2, figsize=(6.0, 2.68))
+    fig, (a, b) = plt.subplots(2, 1, figsize=(FIG3_WIDTH, 3.3), sharex=True)
     for algo in ("ppo", "a2c", "reinforce"):
         cs = final_curves(algo)
         steps = cs[0]["step"]
@@ -247,18 +249,19 @@ def fig_pg(out):
             ax.plot(steps, ys.mean(0), color=COLOR[algo], linestyle=LINESTYLE[algo], marker=MARKER[algo],
                     markevery=4, markersize=5, label=NAMES[algo])
     a.axhline(np.log(15), color=INK_2, linestyle=":", linewidth=1)
-    a.text(60_000, np.log(15) + 0.06, "fully random", fontsize=8, color=INK_2)
-    a.set_ylim(0, 3.05)
+    a.text(200_000, np.log(15) - 0.12, "fully random", fontsize=8, color=INK_2, ha="right", va="top")
+    a.set_ylim(0, 4.4)                                          # headroom above "fully random" for the legend
+    a.set_yticks([0, 1, 2, 3])
     a.set_title("entropy (spread of choices)", loc="left")
     a.set_ylabel("entropy (nats)")
     b.axhline(0, color=INK_2, linewidth=0.8)
     b.set_title("policy loss (noisy)", loc="left")
     b.set_ylabel("policy loss")
-    for ax in (a, b):
-        ax.set_xlabel("training steps")
-        ax.xaxis.set_major_formatter(THOUSANDS)
-    b.legend(fontsize=8, loc="lower right", markerscale=0.7, handlelength=1.8)   # empty corner of the loss panel
-    return finish(fig, "A2C and REINFORCE narrow their choices early; PPO gradually",
+    b.set_xlabel("training steps")
+    b.xaxis.set_major_formatter(THOUSANDS)
+    a.legend(fontsize=8, loc="upper right", ncol=3, markerscale=0.7, handlelength=1.4, columnspacing=0.6,
+             borderaxespad=0.1)                                     # one row above the "fully random" line
+    return finish(fig, "PPO narrows its choices slowly",
                   "3 seeds each (band = min to max); each policy-loss point is one update, so it is noisy.",
                   f"{out}/pg_entropy_policy_loss.png")
 
@@ -266,7 +269,7 @@ def fig_pg(out):
 # ---- 4. convergence: steps to reach two targets ----------------------------------------------
 def fig_convergence(out):
     never_y, budget = 125_000, 100_000
-    fig, axes = plt.subplots(1, 2, figsize=(4.8, 2.26), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(4.8, 2.05), sharey=True)
     rng = np.random.default_rng(0)                              # fixed jitter so the figure never changes
     for ax, target, label in ((axes[0], TARGET_SAFE, "safe-plan level"), (axes[1], TARGET_BEYOND, "beyond safe plan")):
         for i, algo in enumerate(ALGOS):
@@ -343,7 +346,7 @@ def fig_generalization(out):
     series = ([(f"{a} (3 seeds)", NAMES[a], COLOR[a], HATCH[a]) for a in ALGOS]
               + [("best profile rule", "profile rule", RULE_GREY, RULE_HATCH)])
     width = 0.8 / len(series)
-    fig, ax = plt.subplots(figsize=(5.0, 2.56))
+    fig, ax = plt.subplots(figsize=(5.0, 2.3))
     for j, (policy, label, color, hatch) in enumerate(series):
         xs = np.arange(len(worlds)) - 0.4 + width * (j + 0.5)
         ys = [float(rows[w, policy]["reward"]) for w in worlds]
