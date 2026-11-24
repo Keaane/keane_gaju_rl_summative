@@ -151,13 +151,36 @@ def test_ppo_loss_matches_plain():
     same(net, plain_loss, out["loss_objective"] + out["loss_critic"] + out["loss_entropy"])
 
 
+def reinforce_batch(seed, sessions=None):
+    """Whole sessions collected exactly as training collects them (actions sampled from the policy)."""
+    torch.manual_seed(seed)
+    net = plain.ActorCritic(64)
+    env = make_env(seed)
+    actor, critic = trl.make_actor_critic(net, env)
+    n = sessions or plain.ReinforceConfig().episodes_per_update
+    return net, actor, critic, trl.collect_sessions(env, actor, n)
+
+
+def test_reinforce_training_rollouts_sample():
+    """Training sessions use sampled actions, not the most likely action every time. (The first TorchRL REINFORCE
+    sweep collected greedily: env.rollout without the RANDOM exploration type gave 1 distinct action in 200.)"""
+    net, actor, critic, batch = reinforce_batch(6, sessions=20)
+    taken = batch["action"]
+    with torch.no_grad():
+        greedy = net(batch["observation"])[0].argmax(-1)
+    assert len(set(taken.tolist())) >= 8                       # an untrained policy over 15 actions: many
+    assert (taken != greedy).float().mean().item() > 0.5          # most actions are not the most likely one
+
+
 @pytest.mark.parametrize("baseline", [True, False])
 def test_reinforce_loss_matches_plain(baseline):
-    torch.manual_seed(3)
-    cfg, net = plain.ReinforceConfig(ent_coef=0.05, baseline=baseline), plain.ActorCritic(64)
-    env = make_env(3)
-    actor, critic = trl.make_actor_critic(net, env)
-    batch = torch.cat([env.rollout(max_steps=1000, policy=actor) for _ in range(cfg.episodes_per_update)], 0)
+    """On a batch of SAMPLED actions. The first version of this test used a greedy batch, where ReinforceLoss's
+    overwritten actions happened to equal the taken ones, so it could not see that problem."""
+    cfg = plain.ReinforceConfig(ent_coef=0.05, baseline=baseline)
+    net, actor, critic, batch = reinforce_batch(3)
+    with torch.no_grad():
+        assert (batch["action"] != net(batch["observation"])[0].argmax(-1)).any()    # really sampled
+    taken = batch["action"].clone()
     returns = torch.as_tensor(plain.discounted_returns(batch["next", "reward"][:, 0].tolist(),
                                                        batch["next", "done"][:, 0].float().tolist(), cfg.gamma))
     logits, value = net(batch["observation"])
@@ -165,9 +188,10 @@ def test_reinforce_loss_matches_plain(baseline):
     score = returns - value.detach() if baseline else returns
     score = (score - score.mean()) / (score.std() + 1e-8)
     value_loss = nn.functional.mse_loss(value, returns) if baseline else torch.zeros(())
-    plain_loss = -(dist.log_prob(batch["action"]) * score).mean() + 0.5 * value_loss - cfg.ent_coef * dist.entropy().mean()
+    plain_loss = -(dist.log_prob(taken) * score).mean() + 0.5 * value_loss - cfg.ent_coef * dist.entropy().mean()
     est = trl.plain_like(TD1Estimator(gamma=cfg.gamma, value_network=critic))
     pl, vl, ent = trl.reinforce_losses(actor, critic, est, batch, cfg)
+    assert torch.equal(batch["action"], taken)                   # the taken actions are left as they were
     same(net, plain_loss, pl + 0.5 * vl - cfg.ent_coef * ent)
 
 

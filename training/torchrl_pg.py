@@ -3,11 +3,12 @@
 Same algorithms, defaults and network as training/pg_training.py. The TorchRL parts:
   GymWrapper (categorical actions), ProbabilisticActor + ValueOperator around the shared ActorCritic network,
   SyncDataCollector (PPO, A2C) and EnvBase.rollout (REINFORCE, whole sessions), GAE (PPO, A2C),
-  TD1Estimator (REINFORCE: Monte Carlo returns), ClipPPOLoss, A2CLoss, ReinforceLoss,
+  TD1Estimator (REINFORCE: Monte Carlo returns), ClipPPOLoss, A2CLoss,
   ReplayBuffer + LazyTensorStorage + SamplerWithoutReplacement (PPO minibatches).
 Every estimator treats any episode end (including the 12-step cutoff) as the end, like the plain code: the
 "terminated" key is pointed at "done". The checkpoint is the plain ActorCritic, so it is scored with the same
-validation and test users. Each loss was checked against the plain loss on a fixed batch (tests/test_torchrl.py).
+validation and test users. Each loss was checked against the plain loss on a fixed batch of sampled actions
+(tests/test_torchrl.py). REINFORCE computes its policy term itself, not with ReinforceLoss (see reinforce_losses).
 """
 import torch
 from tensordict.nn import TensorDictModule
@@ -16,7 +17,8 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.data import LazyTensorStorage, ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.modules import ProbabilisticActor, ValueOperator
-from torchrl.objectives import A2CLoss, ClipPPOLoss, ReinforceLoss
+from torchrl.envs.utils import ExplorationType, set_exploration_type
+from torchrl.objectives import A2CLoss, ClipPPOLoss
 from torchrl.objectives.value import GAE, TD1Estimator
 
 from training.common import Evaluator, set_seed
@@ -145,20 +147,28 @@ def train_a2c_torchrl(cfg=A2CConfig(), log_path=None, save_path=None, verbose=Tr
 
 
 # ---- REINFORCE ------------------------------------------------------------------------------
+def collect_sessions(env, actor, n):
+    """n whole sessions, start to finish, with actions SAMPLED from the policy. Without the RANDOM exploration
+    type, TorchRL 0.3.1's env.rollout takes the most likely action every time (no exploration at all)."""
+    with set_exploration_type(ExplorationType.RANDOM):
+        return torch.cat([env.rollout(max_steps=1000, policy=actor) for _ in range(n)], 0)
+
+
 def reinforce_losses(actor, critic, returns_estimator, batch, cfg):
-    """ReinforceLoss gives the policy and value terms; like the plain code, the score (return minus baseline) is
-    normalized over the batch, and the entropy bonus is added here because ReinforceLoss 0.3.1 has none."""
+    """Policy, value and entropy terms, as in the plain code. TorchRL's TD1Estimator gives the Monte Carlo returns
+    (and returns minus the baseline); the policy term uses the log-probability of the actions actually taken.
+    ReinforceLoss is not used: in TorchRL 0.3.1 it re-runs the actor and overwrites the taken actions with new
+    samples, so its policy term scores actions that were never taken."""
     with torch.no_grad():
         returns_estimator(batch)                              # Monte Carlo returns, and returns minus baseline
-    score = batch.get("advantage") if cfg.baseline else batch.get("value_target")   # no baseline: the return
-    batch.set("advantage", (score - score.mean()) / (score.std() + 1e-8))
-    loss_module = ReinforceLoss(actor, critic, loss_critic_type="l2")
-    loss_module.set_keys(terminated="done")
-    out = loss_module(batch)
+    returns = batch.get("value_target")[..., 0]
+    score = batch.get("advantage")[..., 0] if cfg.baseline else returns   # no baseline: the return itself
+    score = (score - score.mean()) / (score.std() + 1e-8)
     dist = actor.get_dist(batch)
-    entropy = dist.entropy().mean()
-    value_loss = out["loss_value"] if cfg.baseline else torch.zeros(())
-    return out["loss_actor"], value_loss, entropy
+    policy_loss = -(dist.log_prob(batch["action"]) * score).mean()
+    value = critic(batch.select("observation").clone())["state_value"][..., 0]
+    value_loss = nn.functional.mse_loss(value, returns) if cfg.baseline else torch.zeros(())
+    return policy_loss, value_loss, dist.entropy().mean()
 
 
 def train_reinforce_torchrl(cfg=ReinforceConfig(), log_path=None, save_path=None, verbose=True):
@@ -166,8 +176,7 @@ def train_reinforce_torchrl(cfg=ReinforceConfig(), log_path=None, save_path=None
     returns_estimator = plain_like(TD1Estimator(gamma=cfg.gamma, value_network=critic))
     steps = 0
     while steps < cfg.total_steps:
-        sessions = [env.rollout(max_steps=1000, policy=actor) for _ in range(cfg.episodes_per_update)]
-        batch = torch.cat(sessions, 0)                          # whole sessions, start to finish
+        batch = collect_sessions(env, actor, cfg.episodes_per_update)
         steps += batch.numel()
         policy_loss, value_loss, entropy = reinforce_losses(actor, critic, returns_estimator, batch, cfg)
         update(net, opt, policy_loss + 0.5 * value_loss - cfg.ent_coef * entropy)
