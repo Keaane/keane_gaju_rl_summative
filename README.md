@@ -32,7 +32,7 @@ uv run pytest                        # tests
 uv run python -m training.dqn_training --seed 0
 uv run python -m training.pg_training --algo ppo --seed 0       # ppo | a2c | reinforce
 uv run python -m training.reference                             # baseline scores on the test users
-uv run python -m training.sweep --algo ppo --seeds 3 --workers 4   # 10 settings x 3 seeds
+uv run python -m training.sweep --algo ppo --seeds 3 --workers 4   # 10 settings per algorithm (PPO has 2 extra settings added later, marked in the report)
 uv run python -m training.sweep --table ppo                     # summary table
 ```
 
@@ -81,7 +81,7 @@ not a production service: no login, local use only, and simulation only, not fin
 ```bash
 uv run serve.py                                   # http://127.0.0.1:8000, PPO
 uv run recommend.py --savings 500000 --risk medium --time some --interest savings
-# -> First suggestion (PPO): Show Agri input resale (action 0).
+# -> First suggestion (PPO): Show Local reselling (action 2).
 ```
 
 **The JSON contract.**
@@ -129,7 +129,7 @@ checks that it matches the simulator's own first observation entry for entry (ex
 ```bash
 uv run recommend.py --savings 500000 --risk medium --time some --interest savings --json \
   | curl -s -X POST http://127.0.0.1:8000/next_action -H "Content-Type: application/json" -d @-
-# {"action": 0, "label": "Show Agri input resale", "valid": true, "masked": false}
+# {"action": 2, "label": "Show Local reselling", "valid": true, "masked": false}
 
 curl -s http://127.0.0.1:8000/health
 ```
