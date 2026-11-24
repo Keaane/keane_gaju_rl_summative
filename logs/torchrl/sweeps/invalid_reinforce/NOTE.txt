@@ -1,0 +1,18 @@
+INVALID: collected its training sessions greedily (no exploration) and its loss scored the wrong actions.
+The valid REINFORCE sweep is logs/torchrl/sweeps/reinforce_*.csv (rerun at commit 5be4f33).
+
+This folder: the first TorchRL REINFORCE sweep (100,000 steps, 10 settings x 3 seeds), 2026-11-24, commit b571562.
+Kept for the record only; do not use these results. Its checkpoints are in models/torchrl/sweeps/invalid_reinforce/.
+
+Two bugs in training/torchrl_pg.py, both fixed in 5be4f33 ("Fix the TorchRL REINFORCE sampling and loss"):
+1. No exploration: sessions were collected with env.rollout outside set_exploration_type(ExplorationType.RANDOM),
+   and TorchRL 0.3.1 then takes the most likely action every time. Check: 1 distinct action in 200 draws
+   (15 with RANDOM); 10 sessions used 4 distinct actions (14 with RANDOM).
+2. Wrong actions in the loss: ReinforceLoss 0.3.1 re-runs the actor and overwrites the batch's taken actions
+   with new samples (82 of 87 changed on a test batch), so its policy term scored actions that were never taken.
+   Loss on the same sampled batch: +11.08770 (old) vs +11.09994 (plain and fixed).
+
+Symptoms in this sweep: default-setting gap -0.20 vs plain (300 test users), seeds collapsing to about -2.0 in
+settings 2 and 6, rank correlation with the plain sweep -0.02, range of setting means 0.92 (plain 0.24).
+The earlier parity test missed both bugs because its batch was collected greedily (where the overwritten actions
+happened to equal the taken ones). The whole sweep is rerun at 5be4f33.

@@ -1,0 +1,66 @@
+TorchRL sweeps (100,000 steps), started 2026-11-24.
+
+Code: commit 1d10ac3 ("Add TorchRL versions of the four algorithms"). The sweep was started at 15:16 from the
+working tree, which was identical to that commit (training/torchrl_*.py and training/sweep.py frozen until all
+four sweeps finish).
+
+Environment: separate Python 3.11 side environment (scratch/venv311, not part of the project):
+Python 3.11.18, torch 2.2.2, numpy 1.26.4, torchrl 0.3.1, tensordict 0.3.2, gymnasium 0.29.1, pygame 2.6.1.
+The main project (Python 3.12, pyproject.toml, uv.lock) is unchanged.
+Machine: Intel i7-8569U (4 cores), 16 GB, macOS, on AC power, run under caffeinate -i.
+
+Workers: 2. A first start at 15:09 used 3 workers; the CPU was throttled to 48-68% of full speed (pmset -g therm),
+so it was stopped at 15:15 after 3 finished DQN runs (setting 0, seeds 0-2) and restarted with 2 workers at
+15:16. Finished runs are kept and skipped on restart, so those 3 runs come from the 3-worker start; the results
+do not depend on the number of workers (each run is fixed by its seed).
+
+Commands (one after another; same grids and seeds as the plain sweeps; PPO includes settings 10 and 11):
+scratch/venv311/bin/python -m training.sweep --impl torchrl --algo dqn --runs 10 --steps 100000 --seeds 3 --workers 2
+scratch/venv311/bin/python -m training.sweep --impl torchrl --algo ppo --runs 12 --steps 100000 --seeds 3 --workers 2
+scratch/venv311/bin/python -m training.sweep --impl torchrl --algo a2c --runs 10 --steps 100000 --seeds 3 --workers 2
+scratch/venv311/bin/python -m training.sweep --impl torchrl --algo reinforce --runs 10 --steps 100000 --seeds 3 --workers 2
+
+Equivalent self-contained command (no side environment needed), e.g.:
+uv run --no-project --python 3.11 --with torch==2.2.2 --with numpy==1.26.4 --with torchrl==0.3.1 \
+  --with tensordict==0.3.2 --with gymnasium==0.29.1 --with pygame==2.6.1 \
+  python -m training.sweep --impl torchrl --algo dqn --runs 10 --steps 100000 --seeds 3 --workers 2
+
+Checkpoints: models/torchrl/sweeps/ (git-ignored). The "minutes" column is wall-clock time with 2 workers on a
+throttled laptop; it is not a fair speed comparison with the plain sweeps (3 workers).
+
+A2C ran in two parts (2026-11-24):
+- Settings 0-4 (15 runs) ran 17:10-17:29 at commit 1d10ac3. The sweep then stopped at setting 5 (entropy
+  coefficient 0) with: KeyError 'loss_entropy' not found. TorchRL 0.3.1's A2CLoss leaves out the entropy term
+  when its coefficient is 0 (entropy_bonus = entropy_bonus and entropy_coef), and the trainer added that term.
+- Fixed in commit b571562 ("Fix the TorchRL A2C loss when the entropy coefficient is 0"): a missing entropy term
+  counts as 0. Evidence (tests/test_torchrl.py): with a nonzero coefficient the fixed sum gives the same loss and
+  gradients as the formula used before the fix, so settings 0-4 are unaffected; with coefficient 0 it matches the
+  plain A2C loss. Settings 5-9 were smoke-tested (2,000 steps, 1 seed) before the resume.
+- Settings 5-9 (15 runs) resumed at commit b571562, after the REINFORCE sweep:
+  scratch/venv311/bin/python -m training.sweep --impl torchrl --algo a2c --runs 10 --steps 100000 --seeds 3 --workers 2
+  (finished runs are skipped, so only settings 5-9 run). The crashed start left partial training logs for
+  a2c_run06_seed0-2 and a2c_run07_seed0-1 (those runs were not in the summary); the resume overwrites them.
+  Settings 5-9 smoke-tested again at 5be4f33 (2,000 steps, 1 seed): all ran without errors.
+PPO's entropy-0 setting (run 6) was not affected: ClipPPOLoss keeps the entropy term with coefficient 0.
+REINFORCE has no entropy-0 setting.
+
+REINFORCE: first sweep invalid, rerun (2026-11-24):
+- The first REINFORCE sweep (30 runs, finished 17:53 at b571562) is invalid and was moved, not deleted, to
+  logs/torchrl/sweeps/invalid_reinforce/ (with NOTE.txt) and models/torchrl/sweeps/invalid_reinforce/.
+- Two bugs: (1) sessions were collected with env.rollout without set_exploration_type(ExplorationType.RANDOM),
+  so TorchRL 0.3.1 took the most likely action every time (1 distinct action in 200 draws; 15 with RANDOM);
+  (2) ReinforceLoss 0.3.1 re-runs the actor and overwrites the taken actions (82 of 87 changed on a test batch),
+  so its policy term scored actions that were never taken (loss +11.08770 vs the plain +11.09994).
+- The parity test then in tests/test_torchrl.py used a greedily collected batch, where the overwritten actions
+  happened to equal the taken ones, so it could not see either bug.
+- Found because the default-setting gap check paused the chain (TorchRL -0.05 vs plain +0.16, gap -0.20).
+- Fixed in commit 5be4f33 ("Fix the TorchRL REINFORCE sampling and loss"): sampling under ExplorationType.RANDOM;
+  policy term from the log-probability of the taken actions; value loss MSE against TD1Estimator returns;
+  ReinforceLoss no longer used. New tests on a sampled batch (baseline on and off) and a test that training
+  rollouts sample. All 10 TorchRL tests pass. All 10 REINFORCE settings smoke-tested (2,000 steps, 1 seed).
+- Other algorithms checked at the same time: the PPO and A2C collectors sample during training (200 draws:
+  15 distinct actions with an untrained network; 10 (PPO run 5) and 6 (A2C run 0) with trained checkpoints, where
+  the greedy action covers only 4 and 3, and 62 and 79 of 200 draws differ from it). DQN's evaluation policy is
+  deterministic (same action on the same observation 200 times; two evaluations on 50 users identical).
+- Rerun, after the A2C resume, at 5be4f33:
+  scratch/venv311/bin/python -m training.sweep --impl torchrl --algo reinforce --runs 10 --steps 100000 --seeds 3 --workers 2

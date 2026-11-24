@@ -1,0 +1,22 @@
+{
+  "dqn": {
+    "run": 1,
+    "seed": 2,
+    "setting": "run 1: {\"lr\": 0.0003}"
+  },
+  "ppo": {
+    "run": 5,
+    "seed": 2,
+    "setting": "run 5: {\"epochs\": 16}"
+  },
+  "a2c": {
+    "run": 3,
+    "seed": 0,
+    "setting": "run 3: {\"n_steps\": 8}"
+  },
+  "reinforce": {
+    "run": 2,
+    "seed": 0,
+    "setting": "run 2: {\"lr\": 0.003}"
+  }
+}

@@ -1,0 +1,20 @@
+TorchRL 200,000-step reruns and final evaluation, 2026-11-24.
+
+Code: commit 5be4f33 ("Fix the TorchRL REINFORCE sampling and loss"); training/torchrl_*.py, training/sweep.py and
+training/select_torchrl.py unchanged since. Same side environment and machine as logs/torchrl/sweeps/RUN_INFO.txt.
+
+Started only after all four 100,000-step sweeps had full row counts (DQN, A2C, REINFORCE 30/30, PPO 36/36) and
+0 Tracebacks, and the REINFORCE default-setting gap was within 0.2 (+0.01).
+
+Selection and rerun, one after the other (rule in training/select_torchrl.py; every choice in logs/torchrl/selection.log):
+scratch/venv311/bin/python -m training.select_torchrl --algo dqn --rerun --workers 2         18:56-19:09  run 1
+scratch/venv311/bin/python -m training.select_torchrl --algo ppo --rerun --workers 2         19:09-19:15  run 5
+scratch/venv311/bin/python -m training.select_torchrl --algo a2c --rerun --workers 2         19:15-19:28  runs 3 and 2 -> run 3
+scratch/venv311/bin/python -m training.select_torchrl --algo reinforce --rerun --workers 2   19:28-19:36  runs 9 and 2 -> run 2
+(DQN reruns keep exploration at 50,000 steps: --dqn-explore-steps 50000, added by the script.)
+Each rerun checked by its row count (3 per setting) and Traceback count (all 0). CPU speed limit 100% at every start.
+The final settings and seeds are in logs/torchrl/chosen.json; seed checkpoints in models/torchrl/seeds/ (git-ignored).
+
+Final evaluation (500 test users, all worlds), started only with the CPU speed limit above 80% (it was 100%):
+.venv/bin/python -m analysis.final_eval --impl torchrl        19:36-19:37  -> assets/torchrl/final_results.csv, final_per_user.csv
+(The evaluation only loads the saved networks, so it runs in the main project environment, not the side environment.)
