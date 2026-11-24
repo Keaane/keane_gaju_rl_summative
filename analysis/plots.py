@@ -30,6 +30,7 @@ ALGOS = ["ppo", "a2c", "reinforce", "dqn"]
 NAMES = {"ppo": "PPO", "a2c": "A2C", "reinforce": "REINFORCE", "dqn": "DQN"}
 CHOSEN_RUN = {"ppo": 5, "a2c": 3, "reinforce": 9, "dqn": 1}       # final 200,000-step settings (models/README.md)
 SEEDS = (0, 1, 2)
+MAIN_SETTINGS = range(10)   # the original 10 settings per algorithm; PPO settings 10-11 were added after model selection
 
 # Colours: reference categorical palette, slots in fixed order. Slots 1-4 = algorithms, 5-8 = opportunities.
 COLOR = {"ppo": "#2a78d6", "a2c": "#eb6834", "reinforce": "#1baf7a", "dqn": "#eda100"}
@@ -92,6 +93,15 @@ def curve(algo, run, seed, folder="logs/sweeps_200k"):
 
 def final_curves(algo):
     return [curve(algo, CHOSEN_RUN[algo], s) for s in SEEDS]
+
+
+def main_sweep_runs(algo):
+    """The 100,000-step sweep summary grouped by setting, keeping only the original 10 settings."""
+    by_run = {}
+    for r in read_csv(f"logs/sweeps/{algo}_summary.csv"):
+        if int(r["run"]) in MAIN_SETTINGS:
+            by_run.setdefault(int(r["run"]), []).append(r)
+    return by_run
 
 
 def first_step_at(c, target):
@@ -223,7 +233,7 @@ def fig_convergence(out):
     for ax, target, label in ((axes[0], TARGET_SAFE, "safe-plan level"), (axes[1], TARGET_BEYOND, "beyond safe plan")):
         for i, algo in enumerate(ALGOS):
             reached = 0
-            for run in range(10):
+            for run in MAIN_SETTINGS:
                 for s in SEEDS:
                     step = first_step_at(curve(algo, run, s, "logs/sweeps"), target)
                     x = i + rng.uniform(-0.22, 0.22)
@@ -253,9 +263,7 @@ def fig_hyperparameters(out):
     rule_test = json.load(open("logs/reference.json"))["best profile rule"]["reward"]
     fig, axes = plt.subplots(2, 2, figsize=(6.0, 4.8), sharex=True)
     for ax, algo in zip(axes.flat, ALGOS):
-        by_run = {}
-        for r in read_csv(f"logs/sweeps/{algo}_summary.csv"):
-            by_run.setdefault(int(r["run"]), []).append(r)
+        by_run = main_sweep_runs(algo)
         order = sorted(by_run, key=lambda k: np.mean([float(r["test_reward"]) for r in by_run[k]]))
         for y, run in enumerate(order):
             scores = np.array([float(r["test_reward"]) for r in by_run[run]])

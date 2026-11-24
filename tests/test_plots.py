@@ -20,3 +20,10 @@ def test_figures_build_and_stay_small(tmp_path):
     for path in made:
         size = (tmp_path / path.split("/")[-1]).stat().st_size
         assert 10_000 < size < 500_000, (path, size)
+
+
+def test_sweep_figures_use_the_original_10_settings():
+    """PPO settings 10-11 were added after model selection; the convergence and hyperparameter figures leave them out."""
+    for algo in plots.ALGOS:
+        assert sorted(plots.main_sweep_runs(algo)) == list(range(10))
+    assert list(plots.MAIN_SETTINGS) == list(range(10))
