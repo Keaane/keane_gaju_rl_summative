@@ -3,9 +3,10 @@
   uv run python -m analysis.final_eval                    # full run (500 users, 5 worlds)
   uv run python -m analysis.final_eval --users 20 --out-dir scratch/dry_run    # quick dry run
 
-Agents: all 3 seeds of each algorithm's chosen 200,000-step setting (models/seeds/). The headline for an
-algorithm is the mean over its 3 seeds, with the spread between seeds. The chosen checkpoint (models/best/,
-the demo model) also gets its own row. Guides: random, the best profile rule, the adaptive guide, the oracle.
+Agents: all 3 seeds of each algorithm's chosen 200,000-step setting (models/seeds/, the TorchRL versions;
+the plain PyTorch versions are in models/plain_pytorch/seeds/). The headline for an algorithm is the mean over
+its 3 seeds, with the spread between seeds. The chosen checkpoint (models/best/, the demo model) also gets its
+own row. Guides: random, the best profile rule, the adaptive guide, the oracle.
 The profile rule is tuned on seeds 0-319 (analysis/checks.py), never on any user evaluated here.
 
 Paired comparison: on the same users, agent reward minus profile-rule reward. A difference counts as
@@ -34,7 +35,8 @@ from training.common import greedy, mlp
 from training.pg_training import ActorCritic, greedy_policy
 
 TEST_SEED = 100_000
-# The chosen 200,000-step setting per algorithm, and which seed is the demo model in models/best/.
+# The plain versions' chosen 200,000-step setting per algorithm, and which seed is their demo model
+# (models/plain_pytorch/best/). The TorchRL choices are read from logs/torchrl/chosen.json.
 CHOSEN = {"ppo": ("run 10: learning rate 1e-3", 2), "a2c": ("run 3: update every 8 steps", 2),
           "reinforce": ("run 9: entropy 0.05", 1), "dqn": ("run 1: learning rate 3e-4", 0)}
 SEEDS = (0, 1, 2)
@@ -140,9 +142,10 @@ def paired(a, b):
 
 
 # ---- the evaluation ------------------------------------------------------------------------
-# plain: the PyTorch versions (models/, assets/). torchrl: the TorchRL versions (models/torchrl/, assets/torchrl/);
-# their chosen settings come from logs/torchrl/chosen.json, written by training/select_torchrl.py.
-IMPL = {"plain": ("models", "assets"), "torchrl": ("models/torchrl", "assets/torchrl")}
+# plain: the PyTorch versions (models/plain_pytorch/, assets/). torchrl: the TorchRL versions, which are the
+# final models (models/, assets/torchrl/); their chosen settings come from logs/torchrl/chosen.json, written by
+# training/select_torchrl.py.
+IMPL = {"plain": ("models/plain_pytorch", "assets"), "torchrl": ("models", "assets/torchrl")}
 
 
 def chosen_for(impl="plain"):
@@ -153,7 +156,7 @@ def chosen_for(impl="plain"):
         return {algo: (c["setting"], c["seed"]) for algo, c in json.load(f).items()}
 
 
-def evaluate_all(n_users=500, worlds=tuple(WORLDS), models_dir="models", verbose=True, chosen=None):
+def evaluate_all(n_users=500, worlds=tuple(WORLDS), models_dir="models/plain_pytorch", verbose=True, chosen=None):
     """Returns (summary rows, per-user rows for the normal world)."""
     policies = {}                                              # label -> (kind, algo, seed, policy)
     chosen = chosen or CHOSEN
