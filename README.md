@@ -13,11 +13,13 @@ check, and commits a starter plan that is judged over the user's first simulated
 
 Repository: https://github.com/Keaane/keane_gaju_rl_summative
 
+Running the trained agents needs only the main project (Python 3.12); TorchRL is not needed to run them.
+
 ```bash
 git clone https://github.com/Keaane/keane_gaju_rl_summative.git
 cd keane_gaju_rl_summative
 uv sync
-uv run main.py                       # best PPO agent walking the street scene (pygame window)
+uv run main.py                       # the final PPO agent walking the street scene (pygame window)
 uv run main.py --no-gui              # text transcript instead of a window
 uv run main.py --view dashboard      # list dashboard instead of the street scene
 uv run main.py --gif assets/session.gif --agent adaptive   # save the walking animation
@@ -26,7 +28,30 @@ uv run main.py --screenshot assets/session.png --agent adaptive --seed 100249
 uv run pytest                        # tests
 ```
 
+## Results (500 test users)
+
+Final models: TorchRL, 200,000 training steps, the mean of 3 seeds per algorithm. Reward per session is measured
+against putting all savings in T-bills (higher is better). The difference from the profile rule is paired on the
+same users; "clear" means more than 3 standard errors.
+
+| Guide | Reward (+/- SE) | Versus the best profile rule | Plans beating 19.5% inflation | Plain PyTorch version |
+|---|---|---|---|---|
+| PPO | +0.57 +/- 0.07 | +0.52, clear | 13% | +0.60 |
+| DQN | +0.32 +/- 0.07 | +0.27, clear | 12% | +0.31 |
+| A2C | +0.17 +/- 0.01 | +0.12, not clear | 0% | +0.19 |
+| REINFORCE | +0.15 +/- 0.01 | +0.09, not clear | 0% | +0.17 |
+| Best profile rule | +0.05 +/- 0.08 | (reference) | 6% | |
+| Hand-written adaptive guide | -0.09 +/- 0.09 | -0.14, not clear | 9% | |
+| Random | -1.79 +/- 0.07 | | 9% | |
+| Oracle (sees the hidden truth) | +0.98 +/- 0.16 | | 27% | |
+
+A2C and REINFORCE recommend SACCO savings to everyone; PPO and DQN learn to suggest other options to some users.
+Even T-bills (about 8.9%) lose purchasing power against 19.5% inflation, so few plans beat inflation. Full tables:
+`assets/torchrl/final_results.csv`; the models and how they were chosen: `models/README.md`.
+
 ## Train
+
+These are the plain PyTorch trainers (main project, no TorchRL). The TorchRL versions are below.
 
 ```bash
 uv run python -m training.dqn_training --seed 0
@@ -51,11 +76,14 @@ environment/rendering.py    list dashboard, fonts and colours
 training/common.py          seeds, networks, evaluation, logging
 training/dqn_training.py    DQN
 training/pg_training.py     REINFORCE, A2C, PPO
-training/sweep.py           hyperparameter sweeps
-analysis/                   feasibility checks and a learnability probe
-assets/                     Poppins font, street-scene picture, walkthrough GIF
-models/best/                trained agent used by main.py
-logs/  tests/
+training/torchrl_*.py       the TorchRL versions (DQN, PPO, A2C, REINFORCE)
+training/sweep.py           hyperparameter sweeps (--impl plain|torchrl)
+training/select_torchrl.py  TorchRL selection rule and 200,000-step reruns
+analysis/                   final evaluation, plots, feasibility checks
+assets/                     Poppins font, figures, final results (assets/torchrl/ for TorchRL)
+models/best/                final (TorchRL) agents used by main.py; models/plain_pytorch/ the plain versions
+logs/                       sweep and rerun logs (logs/torchrl/ for TorchRL)
+tests/
 ```
 
 ## Environment in brief
@@ -81,7 +109,7 @@ not a production service: no login, local use only, and simulation only, not fin
 ```bash
 uv run serve.py                                   # http://127.0.0.1:8000, PPO
 uv run recommend.py --savings 500000 --risk medium --time some --interest savings
-# -> First suggestion (PPO): Show Local reselling (action 2).
+# -> First suggestion (PPO): Show T-bills (action 9).
 ```
 
 **The JSON contract.**
@@ -129,18 +157,41 @@ checks that it matches the simulator's own first observation entry for entry (ex
 ```bash
 uv run recommend.py --savings 500000 --risk medium --time some --interest savings --json \
   | curl -s -X POST http://127.0.0.1:8000/next_action -H "Content-Type: application/json" -d @-
-# {"action": 2, "label": "Show Local reselling", "valid": true, "masked": false}
+# {"action": 9, "label": "Show T-bills", "valid": true, "masked": false}
 
 curl -s http://127.0.0.1:8000/health
 ```
 
-## About TorchRL
+## TorchRL
 
-The brief asks for the TorchRL library, so we checked whether it could be installed on this project's setup:
-Python 3.12, PyTorch 2.2.2 and NumPy 1.26.4 on an Intel Mac. It could not. PyTorch 2.2.2 is the last release
-for Intel Macs, TorchRL 0.4 and later need PyTorch 2.3, and the last versions that accept PyTorch 2.2.2
-(TorchRL 0.3.1 with tensordict 0.3.2) have no Intel Mac build for Python 3.12 and no source package. A separate
-Python 3.11 environment would likely work, but was not used so that all results come from one setup. The four
-algorithms therefore use plain PyTorch, with the same building blocks TorchRL provides written out by hand: a
-replay buffer and target network for DQN (`training/dqn_training.py`), generalised advantage estimation for A2C
-and PPO, and a learned baseline for REINFORCE (`training/pg_training.py`).
+The final agents are built from TorchRL 0.3.1 components (for example `GymWrapper`, `SyncDataCollector`,
+`ReplayBuffer`, `DQNLoss`, `GAE`, `ClipPPOLoss`, `A2CLoss`; see `training/torchrl_dqn.py` and
+`training/torchrl_pg.py`). TorchRL 0.3.1 is the last version for PyTorch 2.2, the last PyTorch for Intel Macs,
+and it has no Intel-Mac build for Python 3.12, so training runs in a separate Python 3.11 environment that uv
+creates on the fly; the main project is unchanged. The plain PyTorch versions of all four algorithms
+(`training/dqn_training.py`, `training/pg_training.py`, models in `models/plain_pytorch/`) are kept as a
+cross-check: on the same 500 test users every TorchRL algorithm is within 0.15 of its plain version. Commands
+(define the shortcut once per terminal):
+
+```bash
+trl() { uv run --no-project --python 3.11 --with torch==2.2.2 --with numpy==1.26.4 --with torchrl==0.3.1 \
+  --with tensordict==0.3.2 --with gymnasium==0.29.1 --with pygame==2.6.1 "$@"; }
+trl python -m training.sweep --impl torchrl --algo ppo --seeds 3 --workers 2   # 100,000-step sweep
+trl python -m training.select_torchrl --algo ppo --rerun                        # selection rule, 200,000-step rerun
+trl --with pytest python -m pytest tests/test_torchrl.py                        # TorchRL losses match the plain ones
+uv run python -m analysis.final_eval --impl torchrl                             # 500 test users (no TorchRL needed)
+```
+
+The run details and every difference from the plain versions are in `logs/torchrl/sweeps/RUN_INFO.txt`,
+`logs/torchrl/sweeps_200k/RUN_INFO.txt` and `logs/torchrl/sweeps/NOTES.md`.
+
+## Limits
+
+- **Simulation only, not financial advice.** The users, their reactions and their first year are simulated.
+- **Real data** is used where it exists: inflation (19.5%, NISR), the 364-day T-bill yield (about 8.9%) and its
+  RWF 100,000 minimum, and youth unemployment. **Synthetic, and labelled as such** in
+  `environment/world_data.py` and `DATA_SOURCES.md`: business returns, scam odds, the SACCO deposit rate, user
+  savings, reactions and hidden traits.
+- The agents were trained only in the normal simulated world. When scams become more common (an assumed
+  "shifted" world), PPO and DQN lose their lead over the profile rule.
+- A real deployment would need real data for the trend, testimonial and scam-check signals, and a login.
