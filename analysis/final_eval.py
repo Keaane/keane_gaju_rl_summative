@@ -19,6 +19,7 @@ Writes assets/final_results.csv (one row per policy and world) and assets/final_
 """
 import argparse
 import csv
+import json
 import os
 import time
 
@@ -139,10 +140,24 @@ def paired(a, b):
 
 
 # ---- the evaluation ------------------------------------------------------------------------
-def evaluate_all(n_users=500, worlds=tuple(WORLDS), models_dir="models", verbose=True):
+# plain: the PyTorch versions (models/, assets/). torchrl: the TorchRL versions (models/torchrl/, assets/torchrl/);
+# their chosen settings come from logs/torchrl/chosen.json, written by training/select_torchrl.py.
+IMPL = {"plain": ("models", "assets"), "torchrl": ("models/torchrl", "assets/torchrl")}
+
+
+def chosen_for(impl="plain"):
+    """{algo: (setting label, chosen seed)} for one implementation."""
+    if impl == "plain":
+        return CHOSEN
+    with open("logs/torchrl/chosen.json") as f:
+        return {algo: (c["setting"], c["seed"]) for algo, c in json.load(f).items()}
+
+
+def evaluate_all(n_users=500, worlds=tuple(WORLDS), models_dir="models", verbose=True, chosen=None):
     """Returns (summary rows, per-user rows for the normal world)."""
     policies = {}                                              # label -> (kind, algo, seed, policy)
-    for algo in CHOSEN:
+    chosen = chosen or CHOSEN
+    for algo in chosen:
         for s in SEEDS:
             policies[f"{algo} seed {s}"] = ("seed", algo, s, load_agent(algo, f"{models_dir}/seeds/{algo}_seed{s}.pt"))
     for name, pol in guides().items():
@@ -168,7 +183,7 @@ def evaluate_all(n_users=500, worlds=tuple(WORLDS), models_dir="models", verbose
     for w in worlds:
         rule = rewards(w, "best profile rule")
         entries = []                                           # (policy name, kind, per-user rewards, metrics, extra)
-        for algo, (setting, chosen_seed) in CHOSEN.items():
+        for algo, (setting, chosen_seed) in chosen.items():
             seed_means = [float(np.mean(rewards(w, f"{algo} seed {s}"))) for s in SEEDS]
             per_seed = [metrics(users[w, f"{algo} seed {s}"]) for s in SEEDS]
             avg_metrics = {k: float(np.mean([m[k] for m in per_seed])) for k in per_seed[0]}
@@ -237,10 +252,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--users", type=int, default=500)
     p.add_argument("--worlds", default=",".join(WORLDS), help="comma-separated, e.g. normal,shifted")
-    p.add_argument("--out-dir", default="assets")
+    p.add_argument("--impl", choices=sorted(IMPL), default="plain", help="plain (default) or torchrl")
+    p.add_argument("--out-dir", help="default: assets (plain) or assets/torchrl (torchrl)")
     args = p.parse_args()
+    models_dir, default_out = IMPL[args.impl]
+    args.out_dir = args.out_dir or default_out
     start = time.time()
-    summary, per_user = evaluate_all(args.users, tuple(args.worlds.split(",")))
+    summary, per_user = evaluate_all(args.users, tuple(args.worlds.split(",")), models_dir, chosen=chosen_for(args.impl))
     write_csv(f"{args.out_dir}/final_results.csv", summary, SUMMARY_COLS)
     write_csv(f"{args.out_dir}/final_per_user.csv", per_user, PER_USER_COLS)
     print(f"done in {(time.time() - start) / 60:.1f} min -> {args.out_dir}/final_results.csv, final_per_user.csv")
