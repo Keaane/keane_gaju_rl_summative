@@ -58,7 +58,7 @@ uv run python -m training.dqn_training --seed 0
 uv run python -m training.pg_training --algo ppo --seed 0       # ppo | a2c | reinforce
 uv run python -m training.reference                             # baseline scores on the test users
 uv run python -m training.sweep --algo ppo --seeds 3 --workers 4   # 10 settings per algorithm (PPO has 2 extra settings added later, marked in the report)
-uv run python -m training.sweep --table ppo                     # summary table
+uv run python -m training.sweep --impl torchrl --table ppo        # summary table
 ```
 
 Simulated users are split three ways: random training users, validation users (pick the best
